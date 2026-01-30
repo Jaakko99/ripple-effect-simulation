@@ -1,70 +1,107 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 
-# --- parameters you can play with ---
-NUM_TIMELINES = 50
-G_t = 0.3          # temporal gravity strength
-EXPANSION = 0.0005 # dark‑energy‑like expansion
-DT = 1.0           # time step
-MERGE_DIST = 10.0  # distance at which two timelines merge
-COLORS = {1: "deepskyblue", -1: "tomato"}
+# --- parameters ---
+G_t = 0.3
+EXPANSION = 0.0005
+DT = 1.0
+MERGE_DIST = 10.0
+SPAWN_INTERVAL = 3.0  # seconds between spawning new timelines
+
+COLORS = {1: "deepskyblue", -1: "tomato", 0: "limegreen"}
 
 # --- initial state ---
-np.random.seed(42)
-positions = np.random.rand(NUM_TIMELINES, 2) * 500
-velocities = np.zeros((NUM_TIMELINES, 2))
-directions = np.random.choice([1, -1], NUM_TIMELINES)   # forward/backward
-energy = np.ones(NUM_TIMELINES)
+positions = [np.array([500.0, 500.0])]  # original timeline
+velocities = [np.zeros(2)]
+directions = [0]  # 0=original, ±1=ripples
+energy = [5.0]
+# each timeline has its own delta time (Δt)
+delta_t = [0.0]  # starts at 0s for original
 
-# --- simulation update ---
+# --- spawn helper ---
+last_spawn_time = None
+
+def spawn_one(i):
+    global positions, velocities, directions, energy, delta_t
+    angle = np.random.uniform(0, 2*np.pi)
+    dist = np.random.uniform(20, 60)
+    new_pos = positions[i] + dist * np.array([np.cos(angle), np.sin(angle)])
+    new_vel = np.random.randn(2) * 0.2
+    new_dir = np.random.choice([1, -1])  # forward/backward
+    new_energy = max(energy[i] * np.random.uniform(0.5, 0.9), 0.1)
+    new_dt = 0.0  # start new timeline at 0 relative to parent
+    positions.append(new_pos)
+    velocities.append(new_vel)
+    directions.append(new_dir)
+    energy.append(new_energy)
+    delta_t.append(new_dt)
+
+# --- update simulation ---
 def update():
-    global positions, velocities, energy
-    forces = np.zeros_like(positions)
+    n = len(positions)
+    forces = [np.zeros(2) for _ in range(n)]
 
-    for i in range(NUM_TIMELINES):
-        for j in range(i + 1, NUM_TIMELINES):
+    for i in range(n):
+        for j in range(i+1, n):
             r = positions[j] - positions[i]
             dist = np.linalg.norm(r) + 1e-5
             if dist < MERGE_DIST:
-                # merge: conserve "energy" and set midpoint
+                # merge
                 positions[i] = (positions[i] + positions[j]) / 2
                 energy[i] += energy[j]
                 energy[j] = 0
-                velocities[j] = 0
+                velocities[j] = np.zeros(2)
                 continue
-
-            # temporal‑gravity force
             F = G_t * energy[i] * energy[j] / dist**2
             f_vec = F * (r / dist)
             forces[i] += f_vec
             forces[j] -= f_vec
 
-    velocities += forces * DT
-    positions += velocities * DT
-    positions *= (1 + EXPANSION)        # dark‑energy expansion
+    # update velocities & positions
+    for k in range(n):
+        velocities[k] += forces[k] * DT
+        positions[k] += velocities[k] * DT
+        positions[k] *= (1 + EXPANSION)
+        # update Δt based on direction
+        if directions[k] != 0:
+            delta_t[k] += directions[k] * DT
 
-# --- visualize with matplotlib animation ---
+# --- visualization loop ---
 plt.ion()
-fig, ax = plt.subplots(figsize=(6, 6))
+fig, ax = plt.subplots(figsize=(7,7))
+start_time = time.time()
+last_spawn_time = start_time
 
-for step in range(1000):
+for step in range(1200):
+    now = time.time()
+    t_elapsed = now - start_time
+
+    # spawn one timeline every SPAWN_INTERVAL seconds
+    if t_elapsed > 10 and now - last_spawn_time > SPAWN_INTERVAL:
+        spawn_one(0)
+        last_spawn_time = now
+
     update()
     ax.clear()
-    ax.set_xlim(0, 1000)
-    ax.set_ylim(0, 1000)
-    ax.set_title("Timeline Ripple Simulation")
-    alive = energy > 0
-    for s in [1, -1]:
-        idx = np.where((directions == s) & alive)[0]
-        ax.scatter(
-            positions[idx, 0],
-            positions[idx, 1],
-            s=20,
-            color=COLORS[s],
-            label=">" if s == 1 else "<"
-        )
+    ax.set_xlim(0,1000)
+    ax.set_ylim(0,1000)
+    ax.set_title(f"Timeline Ripple Simulation — t={t_elapsed:5.1f}s")
+
+    # draw dots by type
+    for s in [0,1,-1]:
+        idx = [i for i,d in enumerate(directions) if d==s and energy[i]>0]
+        if idx:
+            p = np.array([positions[i] for i in idx])
+            ax.scatter(p[:,0], p[:,1], s=40 if s==0 else 20,
+                       color=COLORS[s],
+                       label=("Original" if s==0 else ("> Forward" if s==1 else "< Backward")))
+            # add Δt label next to dot
+            for i in idx:
+                ax.text(positions[i][0]+5, positions[i][1]+5, f"{delta_t[i]:.1f}s", fontsize=7, color=COLORS[s])
+
     ax.legend()
-    plt.pause(0.01)
+    plt.pause(0.03)
 
 plt.ioff()
 plt.show()

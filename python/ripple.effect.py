@@ -38,6 +38,7 @@ def spawn_one(i):
     directions.append(new_dir) # add direction
     energy.append(new_energy) # add energy
     delta_t.append(new_dt) # add delta time
+    paths.append([]) # initialize path for new timeline
 
 # --- update simulation ---
 def update():
@@ -85,44 +86,41 @@ plt.ion()
 fig, ax = plt.subplots(figsize=(7,7))
 
 for step in range(1200):
-
-    # advance universe
+    # 1. Logic
     update()
 
-    # trigger first time travel ripple
+    # 2. Events (Time Travel)
     if not spawned and delta_t[0] >= EVENT_T:
         spawn_one(0)
-        delta_t[-1] = RIPPLE_T   # newborn timeline starts in the past
+        delta_t[-1] = RIPPLE_T
         spawned = True
 
-    # --- draw ---
+    # 3. Drawing (Everything below must be indented!)
     ax.clear()
     ax.set_xlim(0, 2000)
     ax.set_ylim(-1000, 1000)
-    ax.set_title("Timeline Ripple Simulation")
+    ax.set_title(f"Timeline Simulation | Year {int(delta_t[0])}")
 
-    for s in [0, 1, -1]:
-        idx = [i for i, d in enumerate(directions) if d == s and energy[i] > 0]
-        if idx:
-            p = np.array([positions[i] for i in idx])
-            ax.scatter(
-                p[:,0], p[:,1],
-                s=40 if s==0 else 20,
-                color=COLORS[s],
-                label=("Original" if s==0 else ("> Forward" if s==1 else "< Backward"))
-            )
+    for k in range(len(positions)):
+        if energy[k] <= 0: continue  # Don't draw merged timelines
+        
+        # --- Draw the 'World-Line' (The Path) ---
+        if len(paths[k]) > 2:
+            path_data = np.array(paths[k])
+            color = COLORS.get(directions[k], "gray")
+            
+            # This draws the history of that specific timeline
+            ax.plot(path_data[:, 0], path_data[:, 1], color=color, alpha=0.4, linewidth=1.5)
 
-            for i in idx:
-                ax.text(
-                    positions[i][0] + 5,
-                    positions[i][1] + 5,
-                    f"Year {int(delta_t[i])}",
-                    fontsize=7,
-                    color=COLORS[s]
-                )
+        # --- Draw the 'Present Moment' (The Dot) ---
+        # We make it pulse based on delta_t for a "wave" feel
+        pulse = 30 + 15 * np.sin(delta_t[k] * 0.1)
+        ax.scatter(positions[k][0], positions[k][1], s=pulse, color=COLORS.get(directions[k], "gray"), edgecolors='white', zorder=3)
+        
+        # Label with the year
+        ax.text(positions[k][0]+10, positions[k][1]+10, f"{int(delta_t[k])}", fontsize=8, color=COLORS.get(directions[k], "gray"))
 
-    ax.legend()
-    plt.pause(0.03)
+    plt.pause(0.01) # Speed it up a bit!
 
 plt.ioff()
 plt.show()

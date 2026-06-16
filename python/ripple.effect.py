@@ -1,126 +1,165 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import time
 
 # --- parameters ---
 G_t = 0.3
 EXPANSION = 0.0005
 DT = 1.0
-MERGE_DIST = 10
-EVENT_T = 1945.0  # when the time travel happens in the prime timeline
-RIPPLE_T = 1743.0 # where the new timeline begins
-spawned = False
-COLORS = {1: "deepskyblue", -1: "tomato"}
+MERGE_DIST = 15.0  # Increased slightly for better collision detection
+COLORS = {1: "deepskyblue", -1: "tomato", 0: "gold"}
 
-# --- initial state ---
-positions = [np.array([1000.0, 0.0])]  # original timeline starts at (1000,0) and expands outward, with Δt=0 at the center as initial timeline
+# Quantum Fluctuation Settings
+VACUUM_SPAWN_CHANCE = 0.08  # Probability per step that a quantum pair spawns
+FLUCTUATION_LIFETIME = 150  # Max steps a virtual timeline pairs can exist without merging
+
+# --- initial state arrays ---
+# Switching to dynamic list structures that support easy appending/removal
+positions = [np.array([1000.0, 0.0])]
 velocities = [np.zeros(2)]
-directions = [1]  # 0=original, ±1=ripples
-energy = [5.0]
-# each timeline has its own delta time (Δt)
-delta_t = [0.0]  # starts at 0s for original
-paths = [[] for _ in range(len(positions))] # initialize paths list for each timeline
+directions = [0]  # 0 = Prime Master Timeline, 1 = Forward, -1 = Backward
+energy = [10.0]   # Higher initial energy for prime timeline
+delta_t = [0.0]
+paths = [[]]
+lifetimes = [99999]  # Prime timeline lives indefinitely
 
-# --- spawn helper ---
-last_spawn_time = None
+# Data tracking metrics
+annihilation_events = [] # Stores coordinates of timeline collapses for visual flashes
 
-def spawn_one(i):
-    global positions, velocities, directions, energy, delta_t # spawn a new timeline from timeline i
-    angle = np.random.uniform(0, 2*np.pi) # random angle
-    dist = np.random.uniform(20, 60) # random distance from parent timeline
-    new_pos = positions[i] + dist * np.array([np.cos(angle), np.sin(angle)]) # random position around parent
-    new_vel = np.random.randn(2) * 0.2 # small random velocity
-    new_dir = np.random.choice([1, -1])  # forward/backward
-    new_energy = max(energy[i] * np.random.uniform(0.5, 0.9), 0.1) # inherit some energy from parent
-    new_dt = 0.0  # start new timeline at 0 relative to parent 
-    positions.append(new_pos) # add new timeline to simulation
-    velocities.append(new_vel) # add velocity
-    directions.append(new_dir) # add direction
-    energy.append(new_energy) # add energy
-    delta_t.append(new_dt) # add delta time
-    paths.append([]) # initialize path for new timeline
+# --- Spawn a Virtual Quantum Pair ---
+def spawn_quantum_pair():
+    global positions, velocities, directions, energy, delta_t, paths, lifetimes
+    if len(positions) == 0: return
+    
+    # Pick a random existing active timeline to spawn near
+    parent_idx = np.random.choice([i for i in range(len(positions)) if energy[i] > 0])
+    base_pos = positions[parent_idx]
+    
+    # Generate an electron-positron analogue pair (Forward +1 and Backward -1)
+    for t_dir in [1, -1]:
+        angle = np.random.uniform(0, 2*np.pi)
+        dist = np.random.uniform(30, 80)
+        
+        new_pos = base_pos + dist * np.array([np.cos(angle), np.sin(angle)])
+        # Fast, erratic quantum movements
+        new_vel = np.random.randn(2) * 2.5 
+        new_energy = np.random.uniform(1.5, 3.0)
+        
+        positions.append(new_pos)
+        velocities.append(new_vel)
+        directions.append(t_dir)
+        energy.append(new_energy)
+        delta_t.append(delta_t[parent_idx]) # Sync initial time to current neighborhood time
+        paths.append([])
+        lifetimes.append(FLUCTUATION_LIFETIME)
 
 # --- update simulation ---
 def update():
+    global positions, velocities, directions, energy, delta_t, paths, lifetimes, annihilation_events
     n = len(positions)
     forces = [np.zeros(2, dtype=float) for _ in range(n)]
 
-    # --- interactions ---
+    # 1. Quantum Fluctuation Spawning (Krauss Analogue)
+    if np.random.rand() < VACUUM_SPAWN_CHANCE:
+        spawn_quantum_pair()
+        n = len(positions) # Update count for new particles
+        forces = [np.zeros(2, dtype=float) for _ in range(n)]
+
+    # 2. Multi-body Interaction Loops
     for i in range(n):
+        if energy[i] <= 0: continue
         for j in range(i+1, n):
+            if energy[j] <= 0: continue
+            
             r = positions[j] - positions[i]
             dist = np.linalg.norm(r) + 1e-5
 
+            # Collision & Annihilation Logic
             if dist < MERGE_DIST:
-                # merge j into i
-                positions[i] = (positions[i] + positions[j]) / 2.0
-                energy[i] += energy[j]
-                energy[j] = 0.0
-                velocities[j] = np.zeros(2, dtype=float)
+                # If a forward (1) and backward (-1) timeline collide: Total Annihilation!
+                if directions[i] * directions[j] == -1:
+                    annihilation_events.append(( (positions[i] + positions[j])/2.0, 30 )) # Trigger a flash
+                    energy[i] = 0.0
+                    energy[j] = 0.0
+                else:
+                    # Constructive merging of matching directions
+                    positions[i] = (positions[i] + positions[j]) / 2.0
+                    energy[i] += energy[j]
+                    energy[j] = 0.0
+                    velocities[i] = (velocities[i] + velocities[j]) / 2.0
                 continue
 
+            # Temporal Gravity calculation
             F = G_t * energy[i] * energy[j] / dist**2
+            
+            # Interference/Directional adjustment: 
+            # Opposite moving timelines slightly repel until they drop into close capture range
+            if directions[i] * directions[j] == -1:
+                F *= -0.5 
+                
             f_vec = F * (r / dist)
-
             forces[i] += f_vec
             forces[j] -= f_vec
 
-    # --- integrate motion ---
+    # 3. Integrate Motion & Enforce Decay
     for k in range(n):
-        if energy[k] <= 0:
-            continue
+        if energy[k] <= 0: continue
 
         velocities[k] += forces[k] * DT
         positions[k] += velocities[k] * DT
         positions[k] *= (1.0 + EXPANSION)
 
-        # leave trail
         paths[k].append(positions[k].copy())
-
-        # update internal timeline
-        if directions[k] != 0:
-            delta_t[k] += directions[k] * DT
+        delta_t[k] += directions[k] * DT
+        
+        # Virtual particles decay over time if they don't stabilize/merge
+        lifetimes[k] -= 1
+        if lifetimes[k] <= 0:
+            energy[k] = 0.0 # Fade out safely
 
 # --- visualization loop ---
 plt.ion()
-fig, ax = plt.subplots(figsize=(7,7))
+fig, ax = plt.subplots(figsize=(8,8))
 
-for step in range(1200):
-    # 1. Logic
+for step in range(1500):
     update()
 
-    # 2. Events (Time Travel)
-    if not spawned and delta_t[0] >= EVENT_T:
-        spawn_one(0)
-        delta_t[-1] = RIPPLE_T
-        spawned = True
-
-    # 3. Drawing (Everything below must be indented!)
     ax.clear()
-    ax.set_xlim(0, 2000)
-    ax.set_ylim(-1000, 1000)
-    ax.set_title(f"Timeline Simulation | Year {int(delta_t[0])}")
+    ax.set_facecolor('#0f111a')  # Dark space background
+    ax.set_xlim(500, 1500)
+    ax.set_ylim(-500, 500)
+    ax.set_title(f"Timeline Field | Quantum Fluctuations | Step {step}", color='white', fontsize=10)
+    ax.grid(True, color='#23283d', linestyle='--', alpha=0.5)
 
+    # A. Draw Annihilation Flashes (Data Points)
+    remaining_flashes = []
+    for flash_pos, radius in annihilation_events:
+        ax.scatter(flash_pos[0], flash_pos[1], s=radius*10, color='white', alpha=0.6, zorder=4)
+        ax.scatter(flash_pos[0], flash_pos[1], s=radius*20, color='gold', alpha=0.2, zorder=1)
+        if radius > 5:
+            remaining_flashes.append((flash_pos, radius - 4)) # Fade the flash over frames
+    annihilation_events = remaining_flashes
+
+    # B. Draw Timelines
     for k in range(len(positions)):
-        if energy[k] <= 0: continue  # Don't draw merged timelines
+        if energy[k] <= 0: continue
         
-        # --- Draw the 'World-Line' (The Path) ---
+        # Scale line thickness with current energy levels
+        linewidth = min(max(energy[k] * 0.5, 0.8), 4.0)
+        color = COLORS.get(directions[k], "gray")
+        
+        # Draw Historical Path
         if len(paths[k]) > 2:
             path_data = np.array(paths[k])
-            color = COLORS.get(directions[k], "gray")
-            
-            # This draws the history of that specific timeline
-            ax.plot(path_data[:, 0], path_data[:, 1], color=color, alpha=0.4, linewidth=1.5)
+            ax.plot(path_data[:, 0], path_data[:, 1], color=color, alpha=0.5, linewidth=linewidth)
 
-        # --- Draw the 'Present Moment' (The Dot) ---
-        # We make it pulse based on delta_t for a "wave" feel
-        pulse = 30 + 15 * np.sin(delta_t[k] * 0.1)
-        ax.scatter(positions[k][0], positions[k][1], s=pulse, color=COLORS.get(directions[k], "gray"), edgecolors='white', zorder=3)
+        # Draw Present Particle Node
+        pulse = (25 + 10 * np.sin(step * 0.2)) * (energy[k]/3.0)
+        ax.scatter(positions[k][0], positions[k][1], s=pulse, color=color, edgecolors='white', linewidths=0.5, zorder=3)
         
-        # Label with the year
-        ax.text(positions[k][0]+10, positions[k][1]+10, f"{int(delta_t[k])}", fontsize=8, color=COLORS.get(directions[k], "gray"))
+        # Track relative time state as text data labels
+        ax.text(positions[k][0]+12, positions[k][1]+12, f"t: {int(delta_t[k])}", fontsize=7, color='white', alpha=0.7)
 
-    plt.pause(0.01) # Speed it up a bit!
+    plt.pause(0.001)
 
 plt.ioff()
 plt.show()

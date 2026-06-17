@@ -1,6 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+## This simulation models a dynamic "timeline field" where multiple timelines (particles) 
+## interact under a temporal gravity-like force, with the added complexity of quantum fluctuations that can spawn new timelines.
+## The simulation includes collision detection for timeline merging and annihilation, as well as visual effects to represent these interactions.
+
 # --- parameters ---
 G_t = 0.3
 EXPANSION = 0.0005
